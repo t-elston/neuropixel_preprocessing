@@ -1,12 +1,12 @@
 # neuropixel_preprocessing: spike-sorting, event extraction, synchronization
 
-I provide a set of jupyter notebooks which implement spike sorting and basic post-sorting data alignment procedures. 
+Here are a set of jupyter notebooks which implement spike sorting and basic post-sorting data alignment procedures. 
 
 ## Automated spike-sorting and unit curation
 
 The first notenook is `npx_spike_sorting_pipeline.ipynb` - this makes use of [Spike Interface](https://spikeinterface.readthedocs.io/en/latest/) to clean your datastreams, run [Kilosort 3](https://github.com/MouseLand/Kilosort), and compute quality metrics for each of the putative units identified by Kilosort. To use this notebook straight out of the box, you'll need to have Kilosort 3 (and [Matlab](https://www.mathworks.com/products/matlab.html)) installed on your computer. This pipeline is optimized for recordings made with [SpikeGLX](https://billkarsh.github.io/SpikeGLX/) where each probe has its own folder. 
 
-If you've used got everything set up as described above, all you need to do the run the notebook is modify a few path variables in the third code cell. Specifically:
+If you've got everything set up as described above, all you need to do the run the notebook is modify a few path variables in the third code cell. Specifically:
 - `base_folder`: path to the folder containing your recording data (the one that has the imec0 and imec1 sub-directories in it). 
 - `kilosort3_path`: path to the folder containing Kilosort 3
 
