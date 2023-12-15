@@ -1,4 +1,4 @@
-# neuropixel_preprocessing - spike-sorting, event extraction, synchronization
+# neuropixel_preprocessing: spike-sorting, event extraction, synchronization
 
 I provide a set of jupyter notebooks which implement spike sorting and basic post-sorting data alignment procedures. 
 
