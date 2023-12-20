@@ -21,7 +21,32 @@ from tkinter import filedialog
 #
 # The string values are converted to numbers using the "int" and "float"
 # functions. Note that python 3 has no size limit for integers.
-#
+
+def get_path_from_dir(base_folder, file_name):
+    """
+    Search for a file within the specified directory and its subdirectories
+    by matching the given file name.
+
+    Args:
+    - base_folder (str): The directory path to start the search from.
+    - file_name (str): The specific file name or part of the file name to be matched.
+
+    Returns:
+    - str or None: The path to the first file found with the given name,
+      or None if no file is found.
+    """
+    base_folder = Path(base_folder)
+    
+    # Iterate through all files and directories in the base_folder
+    for file in base_folder.glob('**/*'):
+        if file.is_file() and file_name in file.name:
+            return file.resolve()  # Return the path of the first file found with the given name
+    
+    # Print an error message if no file with the given name is found
+    print(f"No '{file_name}' file found in the directory.")
+    return None
+
+
 def readMeta(binFullPath):
     metaName = binFullPath.stem + ".meta"
     metaPath = Path(binFullPath.parent / metaName)
@@ -330,15 +355,18 @@ def load(folder, filename):
     """
 
     return np.load(os.path.join(folder, filename))
-
-def extract_sync_edges_and_events(raw_files, nidq_file):
-
-    print('Extracting sync edges and 8bit event words...\n')
     
-    for this_file in raw_files:
+
+def extract_sync_edges(sync_files):
+
+    print('Extracting sync edges...\n')
+    
+    for this_file in sync_files:
+
+        this_file = str(this_file)
 
         # parse whether this file is a probe or nidaq and get the appropriate sync_channel
-        if 'imec' in this_file:
+        if 'imec' in str(this_file):
             sync_channel = [384]
         else:
             sync_channel = [0]
@@ -352,13 +380,6 @@ def extract_sync_edges_and_events(raw_files, nidq_file):
 
         # pull out the sync_channel
         sync_data = rawData[sync_channel, ]
-
-        if meta['typeThis'] == 'imec':
-        # apply gain correction and convert to uV
-            sync_data = 1e6*GainCorrectIM(sync_data, sync_channel, meta)
-        else:
-        # apply gain correction and convert to mV
-            sync_data = 1e3*GainCorrectNI(sync_data, sync_channel, meta)
 
         # rescale the data between 0 and 1 to make edge detection easy/uniform
         sync_data = ((sync_data - np.min(sync_data)) / (np.max(sync_data) - np.min(sync_data))).flatten()
@@ -383,9 +404,12 @@ def extract_sync_edges_and_events(raw_files, nidq_file):
 
         # now save the sync edge times in the relevant directory
         np.save(edge_path, edge_times)
-    #----------------------------------------------------------
 
-    # Now now that we've extracted the edge times, 
+    print('\nSync edge times saved in original directory.')
+
+def extract_event_codes(nidq_file):
+
+    print('Extracting event codes from nidq stream...\n')
     # let's get the event codes from the nidaq stream
 
     # read in the associated meta data
@@ -428,9 +452,93 @@ def extract_sync_edges_and_events(raw_files, nidq_file):
     # one for event ID and the other for the time in MS
     np.save(event_save_name, np.array([event_codes, event_times]).T)
 
-    print('\nSync edge times and event codes saved in original directory.')
+    print('\nEvent codes saved in original directory.')
 
-def align_data_streams(raw_dirs, data_stream_info, reference_stream):
+
+def align_data_streams(sync_files, data_stream_info, reference_stream):
+
+    sync_dirs = [os.path.dirname(s_file) for s_file in sync_files]
+
+    print('Mapping spikes and task events to a common timeline.\n')
+
+    # load the sync edge times (in milliseconds!) associated with the reference stream
+    ref_edge_times = load(sync_dirs[reference_stream], 'edge_times.npy')
+
+    print(data_stream_info[reference_stream] + ' set as master timeline.')
+
+    # loop through each data stream, pull out the associated sync edges and data and then interpolate 
+    # into the reference data stream
+    for ix, this_dir in enumerate(sync_dirs):
+
+        # pull out the sync edge times
+        stream_sync_edges = load(this_dir, 'edge_times.npy')
+        
+        # get the sampling rate for this data stream
+        dir_contents = os.listdir(this_dir)
+
+        # find the meta file associated with the data stream
+        meta_ix = []
+        for fname in dir_contents:
+
+            # is this a probe or the nidaq stream?
+            if 'imec' in data_stream_info[ix]:
+                meta_ix.append('ap.meta' in fname)
+
+            else: # we're dealing with the nidaq stream
+                meta_ix.append('nidq.meta' in fname)
+
+        meta_name = dir_contents[int(np.argwhere(meta_ix))]
+
+        # now load that meta file
+        print('aligning: ' + str(this_dir))
+        meta_path = Path(str(this_dir) + '/' + meta_name)
+
+        meta = read_meta_from_path(meta_path)
+        sampling_rate = SampRate(meta)
+
+        # now that we have the sampling rate, let's pull in the spikes/event codes
+        # if we're dealing with a probe stream, grab the spike times
+        if 'imec' in data_stream_info[ix]:
+
+            # load the sample indices associated with each spike
+            spike_dir = Path(str(this_dir) + '/' + 'ks3_out' + '/' + 'sorter_output')
+            spike_samples = load(spike_dir, 'spike_times.npy')
+
+            # convert into milliseconds
+            spike_times = 1000*(spike_samples/sampling_rate)
+
+            # map the spike_times into the reference timeline
+            # sync_spike_times = np.interp(spike_times, stream_times, ref_times)
+            sync_spike_times = np.interp(spike_times.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
+
+            # create path to where to save data
+            save_path = Path(Path(spike_dir) / 'sync_spike_times')
+
+            # now save these sync'd spike times as a new numpy array in its original directory
+            np.save(save_path, sync_spike_times)
+
+        else: # we are dealing with the nidaq stream
+
+            # load the event codes and times
+            event_codes = load(this_dir, 'raw_event_codes.npy')
+            event_times = event_codes[:, 1]
+
+            # map the event_times into the reference timeline
+            # sync_event_times = np.interp(event_times, stream_times, ref_times)
+            sync_event_times = np.interp(event_times.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
+
+            sync_codes = event_codes
+            sync_codes[:,1] = sync_event_times
+
+            # create path to where to save data
+            save_path = Path(Path(this_dir) / 'sync_event_codes')
+
+            # now save these sync'd spike times as a new numpy array in its original directory
+            np.save(save_path, sync_codes)
+    
+    print('\nAligned spikes and event codes saved in their original directories.')
+
+def align_data_streams2(raw_dirs, data_stream_info, reference_stream):
 
     print('Mapping spikes and task events to a common timeline.\n')
 
@@ -474,7 +582,8 @@ def align_data_streams(raw_dirs, data_stream_info, reference_stream):
         if 'probe' in data_stream_info[ix]:
 
             # load the sample indices associated with each spike
-            spike_samples = load(this_dir, 'spike_times.npy')
+            spike_dir = this_dir / 'ks3_out' / 'sorter_output'
+            spike_samples = load(spike_dir, 'spike_times.npy')
 
             # convert into milliseconds
             spike_times = 1000*(spike_samples/sampling_rate)
@@ -484,7 +593,7 @@ def align_data_streams(raw_dirs, data_stream_info, reference_stream):
             sync_spike_times = np.interp(spike_times.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
 
             # create path to where to save data
-            save_path = Path(Path(this_dir) / 'sync_spike_times')
+            save_path = Path(spike_dir / 'sync_spike_times')
 
             # now save these sync'd spike times as a new numpy array in its original directory
             np.save(save_path, sync_spike_times)
@@ -503,7 +612,7 @@ def align_data_streams(raw_dirs, data_stream_info, reference_stream):
             sync_codes[:,1] = sync_event_times
 
             # create path to where to save data
-            save_path = Path(Path(this_dir) / 'sync_event_codes')
+            save_path = Path(this_dir / 'sync_event_codes')
 
             # now save these sync'd spike times as a new numpy array in its original directory
             np.save(save_path, sync_codes)
