@@ -1,5 +1,10 @@
 """
 Module containing key preprocessing routines for neuropixels data.
+Many of the tools came from Jennifer Colonell's SpikeGLX tools repo:
+https://github.com/jenniferColonell/SpikeGLX_Datafile_Tools/tree/main/Python
+
+Other functions are things I made. 
+
 Created by Thomas Elston in December 2023
 """
 
