@@ -6,7 +6,7 @@ This is a pipeline which spike-sorts neuropixel data aquired with [SpikeGLX](htt
 
 `npx_spike_sorting_pipeline.ipynb` makes use of [Spike Interface](https://spikeinterface.readthedocs.io/en/latest/) to clean your datastreams, run [Kilosort 3](https://github.com/MouseLand/Kilosort), and compute quality metrics for each of the putative units identified by Kilosort. To use this notebook straight out of the box, you'll need to have Kilosort 3 (and [Matlab](https://www.mathworks.com/products/matlab.html)) installed on your computer. This pipeline is optimized for recordings made with [SpikeGLX](https://billkarsh.github.io/SpikeGLX/) where each probe has its own folder. 
 
-If you've got everything set up as described above, all you need to do the run the notebook is modify a few path variables in the third code cell. Specifically:
+If you've got everything set up as described above, all you need to do the run the notebook is modify a few path variables in the second code cell. Specifically:
 - `base_folder`: path to the folder containing your recording data (the one that has the imec0 and imec1 sub-directories in it). 
 - `kilosort3_path`: path to the folder containing Kilosort 3
 
