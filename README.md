@@ -16,6 +16,6 @@ If you are recording from multiple brain areas, you can also modify the `brain_a
 
 ## Extracting event codes and aligning your data onto a common timeline
 
-`npx_spike_sorting_pipeline.ipynb` also extracts the event codes and edges of syncrhonization pulses across all of your data streams and places all of your spike/event data onto a common timeline. 
+`npx_spike_sorting_pipeline.ipynb` also extracts the event codes and edges of synchronization pulses across all of your data streams and places all of your spike/event data onto a common timeline. 
 
 **<ins>Note:</ins>** For the nidaq stream, it assumes that you are using analog channel 0 as your sync_channel - in other words, that you have run a coax cable from the IMEC card on the NI-chassis to analog channel 0 on your nidaq board. 
