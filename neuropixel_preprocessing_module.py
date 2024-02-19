@@ -1,11 +1,11 @@
 """
 Module containing key preprocessing routines for neuropixels data.
+
 Many of the tools came from Jennifer Colonell's SpikeGLX tools repo:
 https://github.com/jenniferColonell/SpikeGLX_Datafile_Tools/tree/main/Python
 
-Other functions are things I made. 
-
-Created by Thomas Elston in December 2023
+Originally created by Thomas Elston in December 2023
+Updated by TE in January 2024 to handle LFP synchronization
 """
 
 import numpy as np
@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from tkinter import Tk
-from tkinter import filedialog
+from tqdm import tqdm
+
 
 
 # Parse ini file returning a dictionary whose keys are the metadata
@@ -390,7 +390,8 @@ def extract_sync_edges(sync_files):
         sync_data = ((sync_data - np.min(sync_data)) / (np.max(sync_data) - np.min(sync_data))).flatten()
 
         # now find the rising edges of the sync_data
-        edges = np.argwhere(np.diff(sync_data) > .5)
+        edges = np.where(sync_data[2:] - sync_data[:-2] > 0.5)[0]
+        edges = edges[np.concatenate(([0], np.where(np.diff(edges) > 1)[0] + 1))]
 
         # convert edges to times
         edge_times = 1000*edges/samp_rate
@@ -458,6 +459,87 @@ def extract_event_codes(nidq_file):
     np.save(event_save_name, np.array([event_codes, event_times]).T)
 
     print('\nEvent codes saved in original directory.')
+
+
+def align_LFP_streams(sync_files, data_stream_info, reference_stream):
+
+    # remove the nidaq stream
+    filtered_paths = [f for f in sync_files if 'nidq' not in os.path.basename(f)]
+
+    sync_dirs = [os.path.dirname(s_file) for s_file in filtered_paths]
+
+    print('Extracting and mapping LFPs to a common timeline.\n')
+
+    # load the sync edge times (in milliseconds!) associated with the reference stream
+    ref_edge_times = load(sync_dirs[reference_stream], 'edge_times.npy')
+
+    print(data_stream_info[reference_stream] + ' set as master timeline.')
+
+    # loop through each data stream, pull out the associated sync edges and data and then interpolate 
+    # into the reference data stream
+    for ix, this_dir in enumerate(sync_dirs):
+
+        # initialize an empty list to accumulate data into for each run
+        downsampled_lfp = []
+
+        # pull out the sync edge times
+        stream_sync_edges = load(this_dir, 'edge_times.npy')
+        
+        # get the sampling rate for this data stream
+        dir_contents = os.listdir(this_dir)
+
+        # find the meta file associated with the data stream
+        meta_ix = []
+        for fname in dir_contents:
+
+            meta_ix.append('lf.meta' in fname)
+
+        meta_name = dir_contents[int(np.argwhere(meta_ix))]
+
+        # now load that meta file
+        print('aligning: ' + this_dir)
+        meta_path = Path(this_dir + '/' + meta_name)
+
+        meta = read_meta_from_path(meta_path)
+        sampling_rate = SampRate(meta)
+
+        # now that we have the sampling rate of the lfp, let's get the LFP data itself
+        # load the mem map of the LFPs
+        raw_lfp = makeMemMapRaw(Path(sync_files[ix]), meta)
+
+        n_channels = len(raw_lfp)
+            
+         # loop over and extract each channel
+        for this_ch in tqdm(range(n_channels), desc = this_dir):
+
+            this_ch_data = raw_lfp[this_ch, ]
+
+            # create a dummy time series in milliseconds
+            raw_ts = (np.arange(len(this_ch_data))/sampling_rate)*1000
+
+            # map the raw_ts into the reference timeline
+            sync_lfp_ts = np.interp(raw_ts.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
+
+            # round the timesteps down to the nearest ms
+            floored_ts = np.floor(sync_lfp_ts)
+
+            # get the first occurence of each integer millisecond
+            unique_ts, first_occurrences = np.unique(floored_ts, return_index=True)
+
+            # add the sub-selected data to a list which will be converted to an array later
+            downsampled_lfp.append(this_ch_data[first_occurrences])
+
+        # convert the list to a n_channels x n_times numpy array
+        downsampled_lfp = np.array(downsampled_lfp)
+
+        # now save these sync'd lfp and times times as a new numpy array in its original directory
+        raw_lfp_path = Path(Path(this_dir) / 'sync_lfp')
+        lfp_ts_path = Path(Path(this_dir) / 'sync_lfp_ts')
+        np.save(raw_lfp_path, downsampled_lfp)
+        np.save(lfp_ts_path, unique_ts)
+
+    print('\nAligned and downsampled LFPs saved in their original directories.')
+
 
 
 def align_data_streams(sync_files, data_stream_info, reference_stream):
@@ -537,87 +619,6 @@ def align_data_streams(sync_files, data_stream_info, reference_stream):
 
             # create path to where to save data
             save_path = Path(Path(this_dir) / 'sync_event_codes')
-
-            # now save these sync'd spike times as a new numpy array in its original directory
-            np.save(save_path, sync_codes)
-    
-    print('\nAligned spikes and event codes saved in their original directories.')
-
-def align_data_streams2(raw_dirs, data_stream_info, reference_stream):
-
-    print('Mapping spikes and task events to a common timeline.\n')
-
-    # load the sync edge times (in milliseconds!) associated with the reference stream
-    ref_edge_times = load(raw_dirs[reference_stream], 'edge_times.npy')
-
-    print(data_stream_info[reference_stream] + ' set as master timeline.')
-
-    # loop through each data stream, pull out the associated sync edges and data and then interpolate 
-    # into the reference data stream
-    for ix, this_dir in enumerate(raw_dirs):
-
-        # pull out the sync edge times
-        stream_sync_edges = load(this_dir, 'edge_times.npy')
-        
-        # get the sampling rate for this data stream
-        dir_contents = os.listdir(this_dir)
-
-        # find the meta file associated with the data stream
-        meta_ix = []
-        for fname in dir_contents:
-
-            # is this a probe or the nidaq stream?
-            if 'probe' in data_stream_info[ix]:
-                meta_ix.append('ap.meta' in fname)
-
-            else: # we're dealing with the nidaq stream
-                meta_ix.append('nidq.meta' in fname)
-
-        meta_name = dir_contents[int(np.argwhere(meta_ix))]
-
-        # now load that meta file
-        print('aligning: ' + this_dir)
-        meta_path = Path(this_dir + '/' + meta_name)
-
-        meta = read_meta_from_path(meta_path)
-        sampling_rate = SampRate(meta)
-
-        # now that we have the sampling rate, let's pull in the spikes/event codes
-        # if we're dealing with a probe stream, grab the spike times
-        if 'probe' in data_stream_info[ix]:
-
-            # load the sample indices associated with each spike
-            spike_dir = this_dir / 'ks3_out' / 'sorter_output'
-            spike_samples = load(spike_dir, 'spike_times.npy')
-
-            # convert into milliseconds
-            spike_times = 1000*(spike_samples/sampling_rate)
-
-            # map the spike_times into the reference timeline
-            # sync_spike_times = np.interp(spike_times, stream_times, ref_times)
-            sync_spike_times = np.interp(spike_times.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
-
-            # create path to where to save data
-            save_path = Path(spike_dir / 'sync_spike_times')
-
-            # now save these sync'd spike times as a new numpy array in its original directory
-            np.save(save_path, sync_spike_times)
-
-        else: # we are dealing with the nidaq stream
-
-            # load the event codes and times
-            event_codes = load(this_dir, 'raw_event_codes.npy')
-            event_times = event_codes[:, 1]
-
-            # map the event_times into the reference timeline
-            # sync_event_times = np.interp(event_times, stream_times, ref_times)
-            sync_event_times = np.interp(event_times.flatten(), stream_sync_edges.flatten(), ref_edge_times.flatten())
-
-            sync_codes = event_codes
-            sync_codes[:,1] = sync_event_times
-
-            # create path to where to save data
-            save_path = Path(this_dir / 'sync_event_codes')
 
             # now save these sync'd spike times as a new numpy array in its original directory
             np.save(save_path, sync_codes)
