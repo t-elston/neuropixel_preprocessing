@@ -1,4 +1,6 @@
-# neuropixel_preprocessing: spike-sorting, event extraction, synchronization
+## neuropixel_preprocessing: spike-sorting, event extraction, synchronization
+
+# STOP - this version is deprecated as of kilosort 4. See [here](https://github.com/t-elston/ks4_pipeline) for the current KS4 sorting pipeline. 
 
 This is a pipeline which spike-sorts neuropixel data aquired with [SpikeGLX](https://billkarsh.github.io/SpikeGLX/) and task control via either [NIMH MonkeyLogic](https://monkeylogic.nimh.nih.gov/index.html) or [PsychToolbox](https://psychtoolbox.org/). 
 
